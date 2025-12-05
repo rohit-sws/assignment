@@ -39,7 +39,9 @@
 
         /* Header */
         header {
-            text-align: center;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
             margin-bottom: 50px;
             margin-top: 30px;
         }
@@ -266,8 +268,11 @@
 
     <div class="container">
         <header>
-            <h1>Learning Yogi Timetable</h1>
-            <p class="subtitle">Transform any timetable file into a smart, digital schedule using advanced AI Vision.</p>
+            <div>
+                <h1>Learning Yogi Timetable</h1>
+                <p class="subtitle">Transform any timetable file into a smart, digital schedule using advanced AI Vision.</p>
+            </div>
+            <a href="/view-timetables.html" class="btn btn-secondary" style="text-decoration: none; padding: 12px 24px; border-radius: 10px; border: 2px solid var(--primary); background: white; color: var(--primary); font-weight: 600; transition: all 0.3s;">📚 View All</a>
         </header>
 
         <div class="app-card">

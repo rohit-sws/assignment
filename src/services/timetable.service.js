@@ -179,10 +179,16 @@ class TimetableService {
 
     async getAllTimetables(teacherId = null) {
         let query = `
-            SELECT t.*, teacher.name as teacher_name 
+            SELECT 
+                t.*,
+                teacher.name as teacher_name,
+                COUNT(DISTINCT tb.id) as timeblock_count,
+                COUNT(DISTINCT tb.day_of_week) as days_count
             FROM timetables t
             JOIN teachers teacher ON t.teacher_id = teacher.id
+            LEFT JOIN timeblocks tb ON t.id = tb.timetable_id
         `;
+
         const params = [];
 
         if (teacherId) {
@@ -190,7 +196,7 @@ class TimetableService {
             params.push(teacherId);
         }
 
-        query += ' ORDER BY t.upload_date DESC';
+        query += ' GROUP BY t.id ORDER BY t.upload_date DESC';
 
         const [timetables] = await db.execute(query, params);
         return timetables;
