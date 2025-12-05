@@ -1,4 +1,5 @@
 const timetableService = require('../services/timetable.service');
+const llmService = require('../services/llm.service');
 const db = require('../config/database');
 
 class TimetableController {
@@ -7,6 +8,18 @@ class TimetableController {
             if (!req.file) {
                 return res.status(400).json({
                     error: 'No file uploaded'
+                });
+            }
+
+            // Get LLM provider from request body
+            const llmProvider = req.body.llm_provider || process.env.DEFAULT_LLM_PROVIDER || 'openai';
+            const apiKey = req.body.api_key || null;
+
+            // Validate provider
+            const validProviders = ['openai', 'gemini', 'anthropic'];
+            if (!validProviders.includes(llmProvider.toLowerCase())) {
+                return res.status(400).json({
+                    error: `Invalid LLM provider. Must be one of: ${validProviders.join(', ')}`
                 });
             }
 
@@ -31,13 +44,18 @@ class TimetableController {
                 }
             }
 
-            // Process timetable
-            const result = await timetableService.processTimetable(req.file, teacherId);
+            // Process timetable with selected provider
+            const result = await timetableService.processTimetable(
+                req.file,
+                teacherId,
+                { llmProvider, apiKey }
+            );
 
             res.status(201).json({
                 success: true,
                 message: 'Timetable uploaded and processed successfully',
-                data: result
+                data: result,
+                llm_provider_used: llmProvider
             });
 
         } catch (error) {
@@ -108,6 +126,24 @@ class TimetableController {
             res.json({
                 success: true,
                 data: logs
+            });
+
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    /**
+     * Get available LLM providers
+     */
+    async getAvailableProviders(req, res, next) {
+        try {
+            const providers = llmService.getAvailableProviders();
+
+            res.json({
+                success: true,
+                default_provider: process.env.DEFAULT_LLM_PROVIDER || 'openai',
+                providers: providers
             });
 
         } catch (error) {

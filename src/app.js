@@ -14,6 +14,7 @@ app.use(express.urlencoded({ extended: true }));
 
 // Static files
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+app.use(express.static(path.join(__dirname, '../public')));
 
 // Routes
 app.use('/api/timetables', require('./routes/timetable.routes'));
@@ -21,6 +22,11 @@ app.use('/api/timetables', require('./routes/timetable.routes'));
 // Health check
 app.get('/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Serve frontend
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, '../public/index.html'));
 });
 
 // Error handling middleware

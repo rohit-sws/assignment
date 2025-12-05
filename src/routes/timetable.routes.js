@@ -4,8 +4,16 @@ const upload = require('../middleware/upload.middleware');
 const timetableController = require('../controllers/timetable.controller');
 
 /**
+ * @route   GET /api/timetables/providers
+ * @desc    Get available LLM providers
+ * @access  Public
+ */
+router.get('/providers', timetableController.getAvailableProviders);
+
+/**
  * @route   POST /api/timetables/upload
  * @desc    Upload and process a timetable document
+ * @body    timetable (file), llm_provider (string), api_key (string, optional)
  * @access  Public
  */
 router.post('/upload', upload.single('timetable'), timetableController.uploadTimetable);

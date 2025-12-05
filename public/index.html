@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Timetable Upload - Learning Yogi</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 40px;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 2rem;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+        }
+
+        .upload-section {
+            border: 3px dashed #667eea;
+            border-radius: 15px;
+            padding: 40px;
+            text-align: center;
+            margin-bottom: 30px;
+            transition: all 0.3s;
+        }
+
+        .upload-section:hover {
+            border-color: #764ba2;
+            background: #f8f9ff;
+        }
+
+        .upload-section.drag-over {
+            background: #e8ebff;
+            border-color: #4c51bf;
+        }
+
+        .file-input-wrapper {
+            position: relative;
+            display: inline-block;
+            margin: 20px 0;
+        }
+
+        input[type="file"] {
+            display: none;
+        }
+
+        .file-input-label {
+            background: #667eea;
+            color: white;
+            padding: 12px 30px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: inline-block;
+        }
+
+        .file-input-label:hover {
+            background: #764ba2;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .provider-section {
+            margin: 20px 0;
+        }
+
+        .provider-select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+            margin-bottom: 15px;
+            transition: border-color 0.3s;
+        }
+
+        .provider-select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .api-key-input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+            margin-bottom: 15px;
+        }
+
+        .api-key-input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .submit-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px 40px;
+            border: none;
+            border-radius: 8px;
+            font-size: 18px;
+            cursor: pointer;
+            width: 100%;
+            transition: all 0.3s;
+        }
+
+        .submit-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(102, 126, 234, 0.4);
+        }
+
+        .submit-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .loading {
+            display: none;
+            margin: 20px 0;
+            text-align: center;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .result-section {
+            display: none;
+            margin-top: 30px;
+            padding: 20px;
+            background: #f8f9ff;
+            border-radius: 10px;
+        }
+
+        .result-section.active {
+            display: block;
+        }
+
+        .timetable-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .day-card {
+            background: white;
+            border-radius: 10px;
+            padding: 15px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .day-title {
+            color: #667eea;
+            font-weight: bold;
+            margin-bottom: 10px;
+            font-size: 1.1rem;
+        }
+
+        .timeblock {
+            padding: 10px;
+            margin-bottom: 8px;
+            background: #f0f0f0;
+            border-radius: 6px;
+            border-left: 4px solid #667eea;
+        }
+
+        .timeblock-name {
+            font-weight: 600;
+            color: #333;
+        }
+
+        .timeblock-time {
+            font-size: 0.9rem;
+            color: #666;
+            margin-top: 4px;
+        }
+
+        .error {
+            background: #fee;
+            border: 1px solid #fcc;
+            color: #c33;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            display: none;
+        }
+
+        .error.active {
+            display: block;
+        }
+
+        .success {
+            background: #efe;
+            border: 1px solid #cfc;
+            color: #3c3;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            display: none;
+        }
+
+        .success.active {
+            display: block;
+        }
+
+        .file-name {
+            color: #667eea;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+
+        .provider-info {
+            background: #e8f4f8;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 10px;
+            font-size: 0.9rem;
+            color: #555;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📚 Learning Yogi Timetable Extractor</h1>
+        <p class="subtitle">Upload your timetable in any format (PDF, DOCX, Image) and let AI extract the schedule</p>
+
+        <div class="upload-section" id="uploadSection">
+            <h3>📁 Upload Timetable</h3>
+            <p style="color: #666; margin: 10px 0;">Drag and drop your file here or click to browse</p>
+            
+            <div class="file-input-wrapper">
+                <input type="file" id="fileInput" accept=".pdf,.docx,.png,.jpg,.jpeg">
+                <label for="fileInput" class="file-input-label">Choose File</label>
+            </div>
+            
+            <div class="file-name" id="fileName"></div>
+        </div>
+
+        <div class="provider-section">
+            <label for="providerSelect" style="font-weight: 600; color: #333; display: block; margin-bottom: 8px;">
+                🤖 Select LLM Provider:
+            </label>
+            <select id="providerSelect" class="provider-select">
+                <option value="">Loading providers...</option>
+            </select>
+
+            <label for="apiKeyInput" style="font-weight: 600; color: #333; display: block; margin-bottom: 8px;">
+                🔑 API Key (Optional - uses server default if empty):
+            </label>
+            <input 
+                type="password" 
+                id="apiKeyInput" 
+                class="api-key-input" 
+                placeholder="Enter your API key (optional)"
+            >
+            
+            <div class="provider-info" id="providerInfo">
+                Select a provider to see details
+            </div>
+        </div>
+
+        <button class="submit-btn" id="submitBtn" disabled>Upload & Process</button>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p style="margin-top: 15px; color: #667eea; font-weight: 600;">Processing your timetable...</p>
+        </div>
+
+        <div class="error" id="error"></div>
+        <div class="success" id="success"></div>
+
+        <div class="result-section" id="resultSection">
+            <h2>📊 Extracted Timetable</h2>
+            <div class="timetable-grid" id="timetableGrid"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE_URL = 'http://localhost:3000/api';
+        let selectedFile = null;
+        let availableProviders = [];
+
+        // Load available providers
+        async function loadProviders() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/timetables/providers`);
+                const data = await response.json();
+                
+                availableProviders = data.providers;
+                const select = document.getElementById('providerSelect');
+                select.innerHTML = '';
+
+                if (availableProviders.length === 0) {
+                    select.innerHTML = '<option value="">No providers configured</option>';
+                    return;
+                }
+
+                availableProviders.forEach(provider => {
+                    const option = document.createElement('option');
+                    option.value = provider.name;
+                    option.textContent = `${provider.displayName} (${provider.model})`;
+                    if (provider.name === data.default_provider) {
+                        option.selected = true;
+                        option.textContent += ' - Default';
+                    }
+                    select.appendChild(option);
+                });
+
+                updateProviderInfo();
+            } catch (error) {
+                console.error('Failed to load providers:', error);
+                showError('Failed to load LLM providers. Please check your server configuration.');
+            }
+        }
+
+        // Update provider info
+        function updateProviderInfo() {
+            const select = document.getElementById('providerSelect');
+            const info = document.getElementById('providerInfo');
+            const selectedProvider = availableProviders.find(p => p.name === select.value);
+
+            if (selectedProvider) {
+                info.innerHTML = `
+                    <strong>${selectedProvider.displayName}</strong><br>
+                    Model: ${selectedProvider.model}<br>
+                    Status: ✅ Available
+                `;
+            }
+        }
+
+        // File input handling
+        const fileInput = document.getElementById('fileInput');
+        const uploadSection = document.getElementById('uploadSection');
+        const fileName = document.getElementById('fileName');
+        const submitBtn = document.getElementById('submitBtn');
+
+        fileInput.addEventListener('change', (e) => {
+            selectedFile = e.target.files[0];
+            if (selectedFile) {
+                fileName.textContent = `Selected: ${selectedFile.name}`;
+                submitBtn.disabled = false;
+            }
+        });
+
+        // Drag and drop
+        uploadSection.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadSection.classList.add('drag-over');
+        });
+
+        uploadSection.addEventListener('dragleave', () => {
+            uploadSection.classList.remove('drag-over');
+        });
+
+        uploadSection.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadSection.classList.remove('drag-over');
+            
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                selectedFile = files[0];
+                fileInput.files = files;
+                fileName.textContent = `Selected: ${selectedFile.name}`;
+                submitBtn.disabled = false;
+            }
+        });
+
+        // Provider select change
+        document.getElementById('providerSelect').addEventListener('change', updateProviderInfo);
+
+        // Submit form
+        document.getElementById('submitBtn').addEventListener('click', async () => {
+            if (!selectedFile) {
+                showError('Please select a file first');
+                return;
+            }
+
+            const provider = document.getElementById('providerSelect').value;
+            const apiKey = document.getElementById('apiKeyInput').value;
+
+            if (!provider) {
+                showError('Please select an LLM provider');
+                return;
+            }
+
+            // Show loading
+            document.getElementById('loading').classList.add('active');
+            document.getElementById('error').classList.remove('active');
+            document.getElementById('success').classList.remove('active');
+            document.getElementById('resultSection').classList.remove('active');
+            submitBtn.disabled = true;
+
+            try {
+                const formData = new FormData();
+                formData.append('timetable', selectedFile);
+                formData.append('llm_provider', provider);
+                if (apiKey) {
+                    formData.append('api_key', apiKey);
+                }
+
+                const response = await fetch(`${API_BASE_URL}/timetables/upload`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Upload failed');
+                }
+
+                showSuccess(`Timetable processed successfully using ${data.llm_provider_used}!`);
+                displayTimetable(data.data);
+
+            } catch (error) {
+                showError(error.message);
+            } finally {
+                document.getElementById('loading').classList.remove('active');
+                submitBtn.disabled = false;
+            }
+        });
+
+        // Display timetable
+        function displayTimetable(timetable) {
+            const grid = document.getElementById('timetableGrid');
+            grid.innerHTML = '';
+
+            // Group by day
+            const byDay = {};
+            timetable.timeblocks.forEach(block => {
+                if (!byDay[block.day_of_week]) {
+                    byDay[block.day_of_week] = [];
+                }
+                byDay[block.day_of_week].push(block);
+            });
+
+            // Create day cards
+            const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+            days.forEach(day => {
+                if (byDay[day]) {
+                    const card = document.createElement('div');
+                    card.className = 'day-card';
+                    
+                    let html = `<div class="day-title">${day}</div>`;
+                    
+                    byDay[day].forEach(block => {
+                        html += `
+                            <div class="timeblock">
+                                <div class="timeblock-name">${block.event_name}</div>
+                                <div class="timeblock-time">${block.start_time} - ${block.end_time}</div>
+                            </div>
+                        `;
+                    });
+                    
+                    card.innerHTML = html;
+                    grid.appendChild(card);
+                }
+            });
+
+            document.getElementById('resultSection').classList.add('active');
+        }
+
+        // Show error
+        function showError(message) {
+            const errorDiv = document.getElementById('error');
+            errorDiv.textContent = '❌ Error: ' + message;
+            errorDiv.classList.add('active');
+            setTimeout(() => errorDiv.classList.remove('active'), 5000);
+        }
+
+        // Show success
+        function showSuccess(message) {
+            const successDiv = document.getElementById('success');
+            successDiv.textContent = '✅ ' + message;
+            successDiv.classList.add('active');
+            setTimeout(() => successDiv.classList.remove('active'), 5000);
+        }
+
+        // Load providers on page load
+        loadProviders();
+    </script>
+</body>
+</html>

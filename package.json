@@ -26,6 +26,7 @@
     "llm",
     "education",
     "openai",
+    "gemini",
     "document-processing",
     "express",
     "mysql"
@@ -39,6 +40,7 @@
   "homepage": "https://github.com/rohit-sws/assignment#readme",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.1",
+    "@google/generative-ai": "^0.21.0",
     "axios": "^1.13.2",
     "cors": "^2.8.5",
     "date-fns": "^4.1.0",

@@ -4,12 +4,20 @@ const llmService = require('./llm.service');
 const path = require('path');
 
 class TimetableService {
-    async processTimetable(file, teacherId) {
+    async processTimetable(file, teacherId, options = {}) {
         let timetableId;
 
         try {
+            // Extract options
+            const {
+                llmProvider = process.env.DEFAULT_LLM_PROVIDER || 'openai',
+                apiKey = null
+            } = options;
+
+            console.log(`📝 Processing with LLM Provider: ${llmProvider}`);
+
             // 1. Create timetable record
-            timetableId = await this.createTimetableRecord(file, teacherId);
+            timetableId = await this.createTimetableRecord(file, teacherId, llmProvider);
 
             // 2. Update status to processing
             await this.updateTimetableStatus(timetableId, 'processing');
@@ -21,8 +29,12 @@ class TimetableService {
             // 4. Store raw extracted text
             await this.updateRawText(timetableId, parsedData.text);
 
-            // 5. Extract structured data using LLM
-            const extractedData = await llmService.extractTimetableData(parsedData.text);
+            // 5. Extract structured data using LLM with selected provider
+            const extractedData = await llmService.extractTimetableData(
+                parsedData.text,
+                llmProvider,
+                apiKey
+            );
 
             // 6. Save timeblocks to database
             await this.saveTimeblocks(timetableId, extractedData.timeblocks);
@@ -31,7 +43,10 @@ class TimetableService {
             await this.updateTimetableStatus(timetableId, 'completed');
 
             // 8. Log success
-            await this.log(timetableId, 'info', 'Timetable processed successfully', extractedData.metadata);
+            await this.log(timetableId, 'info', 'Timetable processed successfully', {
+                ...extractedData.metadata,
+                llmProvider: llmProvider
+            });
 
             return await this.getTimetableById(timetableId);
 
@@ -47,13 +62,13 @@ class TimetableService {
         }
     }
 
-    async createTimetableRecord(file, teacherId) {
+    async createTimetableRecord(file, teacherId, extractionMethod) {
         const fileType = this.getFileType(file.mimetype);
 
         const [result] = await db.execute(
             `INSERT INTO timetables (teacher_id, original_filename, file_path, file_type, extraction_method) 
              VALUES (?, ?, ?, ?, ?)`,
-            [teacherId, file.originalname, file.path, fileType, 'llm']
+            [teacherId, file.originalname, file.path, fileType, extractionMethod]
         );
 
         return result.insertId;
@@ -162,7 +177,6 @@ class TimetableService {
         return typeMap[mimetype] || 'unknown';
     }
 
-    // Cleanup method to delete old files
     async deleteTimetable(timetableId) {
         const [timetables] = await db.execute(
             'SELECT file_path FROM timetables WHERE id = ?',
