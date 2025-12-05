@@ -21,5 +21,25 @@
   "bugs": {
     "url": "https://github.com/rohit-sws/assignment/issues"
   },
-  "homepage": "https://github.com/rohit-sws/assignment#readme"
+  "homepage": "https://github.com/rohit-sws/assignment#readme",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.71.1",
+    "axios": "^1.13.2",
+    "cors": "^2.8.5",
+    "date-fns": "^4.1.0",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "mammoth": "^1.11.0",
+    "multer": "^2.0.2",
+    "mysql2": "^3.15.3",
+    "openai": "^6.10.0",
+    "pdf-parse": "^2.4.5",
+    "tesseract.js": "^6.0.1",
+    "uuid": "^13.0.0"
+  },
+  "devDependencies": {
+    "eslint": "^9.39.1",
+    "nodemon": "^3.1.11",
+    "prettier": "^3.7.4"
+  }
 }
