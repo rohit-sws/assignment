@@ -127,7 +127,7 @@ class TimetableService {
 
     async saveTimeblocks(timetableId, timeblocks) {
         if (!timeblocks || timeblocks.length === 0) {
-            throw new Error('No timeblocks extracted from document');
+            throw new Error(`No timeblocks extracted from document. Check server logs for validation details.`);
         }
 
         const values = timeblocks.map((block, index) => [

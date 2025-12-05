@@ -51,8 +51,6 @@ class LLMService {
                 }
             }
 
-            console.log('DEBUG Raw Extracted Data:', JSON.stringify(result, null, 2));
-
             return this.validateAndNormalize(result);
 
         } catch (error) {
@@ -235,14 +233,28 @@ Extract all timetable events.
 ### CRITICAL INSTRUCTION: MATRIX & LOCKED BLOCKS
 1. **Matrix Layout**: Treat the document as a grid. Time slots often appear as column headers on top. These times apply to ALL days (rows) below them unless a specific cell says otherwise.
 2. **Locked Blocks (Recurring Events)**: Look for "Gray Blocks" or vertical text that spans across all days (or appears to be a divider). 
-   - Examples: "Registration and Early Morning Work", "Break", "Lunch".
+   - Examples: "Registration and Early Morning Work", "Break", "Lunch", "Reading books and register", "Daily routine".
    - **ACTION**: If you see such a block (e.g., "Break" at 10:20-10:35), you MUST generate a separate timeblock for **EVERY** day (Monday-Friday) for that event at that time. Do not just list it once.
+
+3. **HEADER-BASED TIMING (CRITICAL)**:
+   - If the TOP ROW contains time ranges (e.g., "8:40", "9:00", "9:15-10:45", "11:00-11:30"), these define the TIME SLOTS for the COLUMNS below.
+   - When you see an event in a cell (e.g., "Maths" in the Monday row under the "9:15-10:45" column), that event happens at that time.
+   - **RULE**: Use the column header time for the event, NOT text inside the cell (unless the cell explicitly overrides it).
+   - **INFERRING END TIMES**: If a column header only shows a START time (e.g., "8:40", "9:00"), the END time is the START time of the NEXT column. For example:
+     * Column 1: "8:40" → Column 2: "9:00" means events in Column 1 run from 08:40 to 09:00
+     * Column 2: "9:00" → Column 3: "9:15" means events in Column 2 run from 09:00 to 09:15
+   - If a column header already shows a range (e.g., "9:15-10:45"), use that directly.
+   - If a cell is EMPTY but the column has a header time, skip it (no event for that day/time).
+
+4. **Sparse Timetables**:
+   - Some timetables have many empty cells. Only extract events where there is actual text content.
+   - If a row (day) has no events in certain time slots, that's normal - just skip those.
    
 ### Extraction Rules:
-- **Day of the week**: Identify the row for each day (Monday-Sunday).
+- **Day of the week**: Identify the row for each day (Monday-Sunday). May be abbreviated (M, Tu, W, Th, F).
 - **Time**: Start/End time from column headers or specific cell text. Use 24-hour format (HH:MM).
-- **Event Name**: "Maths", "English", "Science", "Break", "Lunch", "Registration", etc. Keep exact wording.
-- **Notes**: Any extra info in the cell (e.g., "Room 3", "Mrs Smith").
+- **Event Name**: "Maths", "English", "Science", "Break", "Lunch", "Registration", "Readers", "Yoga", etc. Keep exact wording.
+- **Notes**: Any extra info in the cell (e.g., "Room 3", "Mrs Smith", "Intervention folders").
 
 ### Context/Text:
 ${text}
@@ -252,31 +264,47 @@ ${text}
     "timeblocks": [
         {
             "day": "Monday",
-            "event_name": "Registration",
-            "start_time": "08:35",
-            "end_time": "08:50",
-            "notes": "Early Morning Work",
+            "event_name": "Reading books and register",
+            "start_time": "08:40",
+            "end_time": "09:00",
+            "notes": "Daily routine",
             "confidence": 0.95
+        },
+        {
+            "day": "Monday",
+            "event_name": "Readers and reading champions",
+            "start_time": "09:15",
+            "end_time": "10:45",
+            "notes": null,
+            "confidence": 0.90
         },
         ...
     ],
     "metadata": {
         "total_events": 25,
         "days_covered": ["Monday", "Tuesday", ...],
-        "extraction_notes": "Detected locked blocks for Break and Lunch."
+        "extraction_notes": "Detected locked blocks for Break and Lunch. Used header-based timing."
     }
 }
 
 ### Final Checklist:
-- Did you expand "Locked Blocks" (Break/Lunch/Reg) for ALL days?
-- Did you use the column header times for the cells below them?
+- Did you expand "Locked Blocks" (Break/Lunch/Reg/Daily routine) for ALL days where they appear?
+- Did you use the COLUMN HEADER times for events, not just cell text?
+- Did you handle abbreviated day names (M=Monday, Tu=Tuesday, W=Wednesday, Th=Thursday, F=Friday)?
+- Did you skip empty cells rather than inventing events?
 - Return ONLY valid JSON.
 `;
     }
 
     validateAndNormalize(data) {
         if (!data.timeblocks || !Array.isArray(data.timeblocks)) {
+            console.error('LLM Response structure:', JSON.stringify(data, null, 2));
             throw new Error('Invalid LLM response: missing timeblocks array');
+        }
+
+        if (data.timeblocks.length === 0) {
+            console.warn('LLM returned empty timeblocks array');
+            throw new Error('LLM returned no timeblocks - the document may be too complex or unreadable');
         }
 
         const validDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -288,16 +316,43 @@ ${text}
                 block[key.toLowerCase()] = rawBlock[key];
             }
 
-            // Map common variances
-            if (block.eventname) block.event_name = block.eventname;
-            if (block.event) block.event_name = block.event;
-            if (block.starttime) block.start_time = block.starttime;
-            if (block.endtime) block.end_time = block.end_time;
-            if (block.time_start) block.start_time = block.time_start;
-            if (block.time_end) block.end_time = block.time_end;
+            // Map common variances - handle both camelCase and snake_case
+            // LLM might return: eventName, event_name, eventname, event, etc.
+            if (block.eventname && !block.event_name) block.event_name = block.eventname;
+            if (block.event && !block.event_name) block.event_name = block.event;
+
+            // Time fields: startTime, start_time, starttime, time_start
+            if (block.starttime && !block.start_time) block.start_time = block.starttime;
+            if (block.time_start && !block.start_time) block.start_time = block.time_start;
+
+            // End time: endTime, end_time, endtime, time_end  
+            if (block.endtime && !block.end_time) block.end_time = block.endtime;
+            if (block.time_end && !block.end_time) block.end_time = block.time_end;
 
             // Normalize Day
             if (block.day) block.day = block.day.trim();
+
+            // Handle abbreviated day names (M, Tu, W, Th, F, Sa, Su)
+            const dayAbbreviations = {
+                'M': 'Monday',
+                'Tu': 'Tuesday',
+                'W': 'Wednesday',
+                'Th': 'Thursday',
+                'F': 'Friday',
+                'Sa': 'Saturday',
+                'Su': 'Sunday',
+                'Mon': 'Monday',
+                'Tue': 'Tuesday',
+                'Wed': 'Wednesday',
+                'Thu': 'Thursday',
+                'Fri': 'Friday',
+                'Sat': 'Saturday',
+                'Sun': 'Sunday'
+            };
+
+            if (dayAbbreviations[block.day]) {
+                block.day = dayAbbreviations[block.day];
+            }
 
             // Handle case where day might be "Wed" or "Wednesday."
             // Simplified check: if string contains the day name
@@ -311,8 +366,13 @@ ${text}
             }
 
             // Validate times
+            if (!block.start_time || !block.end_time) {
+                console.warn(`Missing time data for ${block.event_name} (start: ${block.start_time}, end: ${block.end_time}). Keys: ${Object.keys(rawBlock).join(',')}`);
+                return null;
+            }
+
             if (!this.isValidTime(block.start_time) || !this.isValidTime(block.end_time)) {
-                console.warn(`Invalid time for ${block.event_name} (${block.start_time}-${block.end_time}). Keys: ${Object.keys(rawBlock).join(',')}`);
+                console.warn(`Invalid time format for ${block.event_name} (${block.start_time}-${block.end_time}). Keys: ${Object.keys(rawBlock).join(',')}`);
                 return null;
             }
 
@@ -325,6 +385,11 @@ ${text}
                 confidence: block.confidence || 0.8
             };
         }).filter(block => block !== null);
+
+        if (normalized.length === 0 && data.timeblocks.length > 0) {
+            console.error(`All ${data.timeblocks.length} timeblocks were filtered out as invalid`);
+            console.error('Sample raw block:', JSON.stringify(data.timeblocks[0], null, 2));
+        }
 
         return {
             timeblocks: normalized,
