@@ -22,19 +22,55 @@ class TimetableService {
             // 2. Update status to processing
             await this.updateTimetableStatus(timetableId, 'processing');
 
-            // 3. Parse document
+            // 3. Determine processing strategy
             const fileType = this.getFileType(file.mimetype);
-            const parsedData = await documentParser.parseDocument(file.path, fileType);
+            let extractedData;
+            let rawText = '';
 
-            // 4. Store raw extracted text
-            await this.updateRawText(timetableId, parsedData.text);
+            // Check if we should use Vision/Multimodal pipeline
+            // 1. Always for images
+            // 2. For PDFs ONLY if using Gemini (supports Multimodal PDF)
+            const isGemini = llmProvider.toLowerCase() === 'gemini';
+            const useVision = fileType === 'image' || (fileType === 'pdf' && isGemini);
 
-            // 5. Extract structured data using LLM with selected provider
-            const extractedData = await llmService.extractTimetableData(
-                parsedData.text,
-                llmProvider,
-                apiKey
-            );
+            if (useVision) {
+                // VISION/MULTIMODAL PIPELINE
+                console.log('👁️ Processing as Image/PDF (Vision/Multimodal)');
+
+                // Determine MIME type for vision API
+                const mimeType = fileType === 'pdf' ? 'application/pdf' :
+                    (file.mimetype === 'image/jpeg' || file.mimetype === 'image/jpg') ? 'image/jpeg' : 'image/png';
+
+                // Store empty raw text for now
+                await this.updateRawText(timetableId, '[Processed via Vision/Multimodal API]');
+
+                extractedData = await llmService.extractTimetableData(
+                    file.path,
+                    llmProvider,
+                    'image', // inputType 'image' trigger vision path
+                    apiKey,
+                    mimeType // Pass actual mimeType
+                );
+
+            } else {
+                // TEXT/DOCUMENT PIPELINE (Legacy + OpenAI PDF)
+                console.log('📄 Processing as Text/Document');
+
+                // Parse document text
+                const parsedData = await documentParser.parseDocument(file.path, fileType);
+                rawText = parsedData.text;
+
+                // Store raw text
+                await this.updateRawText(timetableId, rawText);
+
+                // Extract structured data
+                extractedData = await llmService.extractTimetableData(
+                    rawText,
+                    llmProvider,
+                    'text',
+                    apiKey
+                );
+            }
 
             // 6. Save timeblocks to database
             await this.saveTimeblocks(timetableId, extractedData.timeblocks);
@@ -45,7 +81,8 @@ class TimetableService {
             // 8. Log success
             await this.log(timetableId, 'info', 'Timetable processed successfully', {
                 ...extractedData.metadata,
-                llmProvider: llmProvider
+                llmProvider: llmProvider,
+                strategy: fileType === 'image' ? 'vision' : 'text-extraction'
             });
 
             return await this.getTimetableById(timetableId);

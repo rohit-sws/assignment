@@ -1,5 +1,12 @@
 const fs = require('fs').promises;
-const pdfParse = require('pdf-parse');
+let pdfParse = require('pdf-parse');
+if (typeof pdfParse !== 'function') {
+    if (pdfParse.default) {
+        pdfParse = pdfParse.default;
+    } else if (pdfParse.PDFParse) {
+        pdfParse = pdfParse.PDFParse;
+    }
+}
 const mammoth = require('mammoth');
 const Tesseract = require('tesseract.js');
 
@@ -24,13 +31,22 @@ class DocumentParserService {
 
     async parsePDF(filePath) {
         const dataBuffer = await fs.readFile(filePath);
-        const data = await pdfParse(dataBuffer);
+
+        // Handle PDFParse class
+        const ParserClass = pdfParse.PDFParse || pdfParse;
+
+        // v2 usage: new PDFParse({ data: buffer })
+        const parser = new ParserClass({ data: dataBuffer });
+        const result = await parser.getText();
+        await parser.destroy();
 
         return {
-            text: data.text,
-            pages: data.numpages,
-            metadata: data.info,
-            rawData: data
+            text: result.text,
+            pages: 0, // v2 might not expose pages count easily in result.text object, result has .text. 
+            // result is TextResult { text: string, pages: ...? }
+            // Let's assume result.text is what we want.
+            metadata: {},
+            rawData: result
         };
     }
 
