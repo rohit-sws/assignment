@@ -244,6 +244,15 @@ Extract all timetable events.
      * Column 1: "8:40" → Column 2: "9:00" means events in Column 1 run from 08:40 to 09:00
      * Column 2: "9:00" → Column 3: "9:15" means events in Column 2 run from 09:00 to 09:15
    - If a column header already shows a range (e.g., "9:15-10:45"), use that directly.
+   
+   - **MULTIPLE SUBJECTS IN ONE CELL (TIME SPLITTING)**:
+     * If a cell contains MULTIPLE subjects/activities (e.g., "RWI" and "Play (Observation)" both in the 9:00-10:15 slot), you MUST split the time equally.
+     * Example: 9:00-10:15 is 75 minutes. If there are 2 subjects, each gets 37-38 minutes:
+       - Subject 1: 09:00 - 09:37 (or 09:38)
+       - Subject 2: 09:38 (or 09:37) - 10:15
+     * Round to nearest minute. The last subject should end at the column's end time.
+     * Create SEPARATE timeblock entries for each subject.
+   
    - If a cell is EMPTY but the column has a header time, skip it (no event for that day/time).
 
 4. **Sparse Timetables**:
@@ -271,11 +280,19 @@ ${text}
             "confidence": 0.95
         },
         {
-            "day": "Monday",
-            "event_name": "Readers and reading champions",
-            "start_time": "09:15",
-            "end_time": "10:45",
-            "notes": null,
+            "day": "Tuesday",
+            "event_name": "RWI",
+            "start_time": "09:00",
+            "end_time": "09:37",
+            "notes": "Split from 9:00-10:15 slot (2 subjects)",
+            "confidence": 0.90
+        },
+        {
+            "day": "Tuesday",
+            "event_name": "Play (Observation)",
+            "start_time": "09:38",
+            "end_time": "10:15",
+            "notes": "Split from 9:00-10:15 slot (2 subjects)",
             "confidence": 0.90
         },
         ...
@@ -283,7 +300,7 @@ ${text}
     "metadata": {
         "total_events": 25,
         "days_covered": ["Monday", "Tuesday", ...],
-        "extraction_notes": "Detected locked blocks for Break and Lunch. Used header-based timing."
+        "extraction_notes": "Detected locked blocks for Break and Lunch. Used header-based timing. Split multi-subject cells."
     }
 }
 
@@ -291,6 +308,7 @@ ${text}
 - Did you expand "Locked Blocks" (Break/Lunch/Reg/Daily routine) for ALL days where they appear?
 - Did you use the COLUMN HEADER times for events, not just cell text?
 - Did you handle abbreviated day names (M=Monday, Tu=Tuesday, W=Wednesday, Th=Thursday, F=Friday)?
+- Did you SPLIT time slots when multiple subjects appear in one cell (e.g., 2 subjects in 75 mins = ~37 mins each)?
 - Did you skip empty cells rather than inventing events?
 - Return ONLY valid JSON.
 `;
