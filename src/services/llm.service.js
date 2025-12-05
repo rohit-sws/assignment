@@ -239,10 +239,21 @@ Extract all timetable events.
 3. **HEADER-BASED TIMING (CRITICAL)**:
    - If the TOP ROW contains time ranges (e.g., "8:40", "9:00", "9:15-10:45", "11:00-11:30"), these define the TIME SLOTS for the COLUMNS below.
    - When you see an event in a cell (e.g., "Maths" in the Monday row under the "9:15-10:45" column), that event happens at that time.
-   - **RULE**: Use the column header time for the event, NOT text inside the cell (unless the cell explicitly overrides it).
+   
+   - **CELL-SPECIFIC TIMES OVERRIDE HEADERS (HIGHEST PRIORITY)**:
+     * If a cell contains its OWN time (e.g., "10:50-12:00 English" or "9:30 - 10:20 Maths"), USE THAT TIME, NOT the column header.
+     * Example: Column header says "11:00-11:55" but cell says "10:50-12:00 English" → Use 10:50-12:00
+     * Look for patterns like "HH:MM - HH:MM Activity" or "HH:MM-HH:MM Activity" inside cells.
+     * These cell-specific times are ABSOLUTE and take precedence over everything else.
+   
+   - **RULE**: Use the column header time for the event ONLY if the cell doesn't specify its own time.
    - **INFERRING END TIMES**: If a column header only shows a START time (e.g., "8:40", "9:00"), the END time is the START time of the NEXT column. For example:
      * Column 1: "8:40" → Column 2: "9:00" means events in Column 1 run from 08:40 to 09:00
      * Column 2: "9:00" → Column 3: "9:15" means events in Column 2 run from 09:00 to 09:15
+   - **LAST COLUMN (No Next Column)**: If it's the LAST time slot of the day (e.g., "2:30" or "14:30" with no column after it):
+     * Assume a reasonable duration (typically 30-45 minutes for primary schools)
+     * Example: "14:30" (2:30pm) → assume ends at 15:00 or 15:15 (3:00pm or 3:15pm)
+     * Look for context clues like "Storytime" (short, ~15 mins) vs "Word time" (longer, ~30-45 mins)
    - If a column header already shows a range (e.g., "9:15-10:45"), use that directly.
    
    - **MULTIPLE SUBJECTS IN ONE CELL (TIME SPLITTING)**:
@@ -295,6 +306,14 @@ ${text}
             "notes": "Split from 9:00-10:15 slot (2 subjects)",
             "confidence": 0.90
         },
+        {
+            "day": "Monday",
+            "event_name": "English",
+            "start_time": "10:50",
+            "end_time": "12:00",
+            "notes": "Experience Day - cell-specific time overrides column header",
+            "confidence": 0.95
+        },
         ...
     ],
     "metadata": {
@@ -305,8 +324,9 @@ ${text}
 }
 
 ### Final Checklist:
+- Did you prioritize CELL-SPECIFIC times (e.g., "10:50-12:00 English") over column header times?
 - Did you expand "Locked Blocks" (Break/Lunch/Reg/Daily routine) for ALL days where they appear?
-- Did you use the COLUMN HEADER times for events, not just cell text?
+- Did you use the COLUMN HEADER times for events when cells don't have their own times?
 - Did you handle abbreviated day names (M=Monday, Tu=Tuesday, W=Wednesday, Th=Thursday, F=Friday)?
 - Did you SPLIT time slots when multiple subjects appear in one cell (e.g., 2 subjects in 75 mins = ~37 mins each)?
 - Did you skip empty cells rather than inventing events?
