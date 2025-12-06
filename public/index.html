@@ -408,6 +408,7 @@
         // --- State ---
         let selectedFile = null;
         let providers = [];
+        let SERVER_URL = 'http://localhost:3000'; // Default fallback
 
         // --- Toast Notifications ---
         function showToast(type, title, message) {
@@ -436,9 +437,23 @@
 
         // --- Logic ---
         
-        async function init() {
+        async function loadConfig() {
             try {
-                const res = await fetch('http://localhost:3000/api/timetables/providers');
+                const res = await fetch('/api/config');
+                const data = await res.json();
+                if (data.success && data.serverUrl) {
+                    SERVER_URL = data.serverUrl;
+                }
+            } catch (e) {
+                console.warn('Failed to load config, using default SERVER_URL');
+            }
+        }
+
+        async function init() {
+            await loadConfig(); // Load server URL first
+            
+            try {
+                const res = await fetch(`${SERVER_URL}/api/timetables/providers`);
                 const data = await res.json();
                 providers = data.providers;
                 
@@ -497,7 +512,7 @@
             if (apiKey) formData.append('api_key', apiKey);
 
             try {
-                const res = await fetch('http://localhost:3000/api/timetables/upload', {
+                const res = await fetch(`${SERVER_URL}/api/timetables/upload`, {
                     method: 'POST',
                     body: formData
                 });

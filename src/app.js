@@ -19,6 +19,14 @@ app.use(express.static(path.join(__dirname, '../public')));
 // Routes
 app.use('/api/timetables', require('./routes/timetable.routes'));
 
+// Config endpoint for frontend
+app.get('/api/config', (req, res) => {
+    res.json({
+        success: true,
+        serverUrl: process.env.SERVER_URL || `http://localhost:${process.env.PORT || 3000}`
+    });
+});
+
 // Health check
 app.get('/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });

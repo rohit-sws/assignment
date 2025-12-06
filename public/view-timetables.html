@@ -432,10 +432,25 @@
     <script>
         let timetables = [];
         let currentTimetable = null;
+        let SERVER_URL = 'http://localhost:3000'; // Default fallback
+
+        async function loadConfig() {
+            try {
+                const res = await fetch('/api/config');
+                const data = await res.json();
+                if (data.success && data.serverUrl) {
+                    SERVER_URL = data.serverUrl;
+                }
+            } catch (e) {
+                console.warn('Failed to load config, using default SERVER_URL');
+            }
+        }
 
         async function loadTimetables() {
+            await loadConfig(); // Load server URL first
+            
             try {
-                const res = await fetch('http://localhost:3000/api/timetables');
+                const res = await fetch(`${SERVER_URL}/api/timetables`);
                 const data = await res.json();
                 
                 if (data.success) {
@@ -503,7 +518,7 @@
 
         async function viewDetails(id) {
             try {
-                const res = await fetch(`http://localhost:3000/api/timetables/${id}`);
+                const res = await fetch(`${SERVER_URL}/api/timetables/${id}`);
                 const data = await res.json();
                 
                 if (data.success) {
@@ -588,7 +603,7 @@
             if (!confirm('Are you sure you want to delete this timetable?')) return;
 
             try {
-                const res = await fetch(`http://localhost:3000/api/timetables/${id}`, {
+                const res = await fetch(`${SERVER_URL}/api/timetables/${id}`, {
                     method: 'DELETE'
                 });
                 const data = await res.json();
