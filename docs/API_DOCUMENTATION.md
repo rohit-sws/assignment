@@ -598,6 +598,12 @@ The system uses advanced prompt engineering to handle complex timetable formats:
    - Supports full names (Monday, Tuesday, etc.)
    - Supports abbreviations (M, Tu, W, Th, F, Sa, Su)
 
+7. **Multi-Column Daily Schedules**
+   - Handles side-by-side daily schedules (e.g., "Monday, Tuesday, Thursday" | "Wednesday" | "Friday")
+   - Each column represents a separate daily schedule
+   - Events are duplicated for all days listed in the column header
+   - Example: "Daily Schedule—Monday, Tuesday, Thursday" creates the same events for all three days
+
 ---
 
 ## Usage Examples
@@ -637,6 +643,79 @@ const allRes = await fetch("http://localhost:3000/api/timetables");
 const all = await allRes.json();
 console.log("Total timetables:", all.count);
 ```
+
+### Multi-Column Daily Schedule Example
+
+For timetables with multiple daily schedules displayed side-by-side (e.g., separate columns for different days):
+
+**Input Format:**
+
+```
+Daily Schedule—Monday, Tuesday, Thursday | Daily Schedule—Wednesday | Daily Schedule—Friday
+```
+
+**How It Works:**
+
+1. The AI identifies each column as a separate daily schedule
+2. Events in the "Monday, Tuesday, Thursday" column are duplicated for all three days
+3. Events in the "Wednesday" column apply only to Wednesday
+4. Events in the "Friday" column apply only to Friday
+
+**Example Extraction:**
+
+```javascript
+// Input: Side-by-side schedules
+// Column 1: "Monday, Tuesday, Thursday" - 8:35 "Students are allowed inside"
+// Column 2: "Wednesday" - 8:35 "Students are allowed inside"
+// Column 3: "Friday" - 8:35 "Students are allowed inside"
+
+// Output: 5 separate timeblocks (one for each day)
+{
+  "timeblocks": [
+    {
+      "day": "Monday",
+      "event_name": "Students are allowed inside",
+      "start_time": "08:35",
+      "end_time": "09:00",
+      "notes": "From Daily Schedule—Monday, Tuesday, Thursday"
+    },
+    {
+      "day": "Tuesday",
+      "event_name": "Students are allowed inside",
+      "start_time": "08:35",
+      "end_time": "09:00",
+      "notes": "From Daily Schedule—Monday, Tuesday, Thursday"
+    },
+    {
+      "day": "Wednesday",
+      "event_name": "Students are allowed inside",
+      "start_time": "08:35",
+      "end_time": "09:00",
+      "notes": "From Daily Schedule—Wednesday"
+    },
+    {
+      "day": "Thursday",
+      "event_name": "Students are allowed inside",
+      "start_time": "08:35",
+      "end_time": "09:00",
+      "notes": "From Daily Schedule—Monday, Tuesday, Thursday"
+    },
+    {
+      "day": "Friday",
+      "event_name": "Students are allowed inside",
+      "start_time": "08:35",
+      "end_time": "09:00",
+      "notes": "From Daily Schedule—Friday"
+    }
+  ]
+}
+```
+
+**Benefits:**
+
+- Automatically handles varying schedules across the week
+- Reduces redundancy in timetable creation
+- Maintains accuracy for days with unique schedules
 
 ---
 

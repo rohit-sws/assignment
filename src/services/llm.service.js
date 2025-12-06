@@ -51,7 +51,14 @@ class LLMService {
                 }
             }
 
-            return this.validateAndNormalize(result);
+            // DEBUG: Log raw LLM response
+            console.log('=== RAW LLM RESPONSE ===');
+            console.log(JSON.stringify(result, null, 2));
+            console.log('=== END RAW RESPONSE ===');
+
+            const validatedData = this.validateAndNormalize(result);
+
+            return validatedData;
 
         } catch (error) {
             console.error(`Error extracting timetable data with ${selectedProvider}:`, error);
@@ -231,12 +238,36 @@ Always return valid JSON with no additional formatting or explanation.`;
 Extract all timetable events. 
 
 ### CRITICAL INSTRUCTION: MATRIX & LOCKED BLOCKS
-1. **Matrix Layout**: Treat the document as a grid. Time slots often appear as column headers on top. These times apply to ALL days (rows) below them unless a specific cell says otherwise.
-2. **Locked Blocks (Recurring Events)**: Look for "Gray Blocks" or vertical text that spans across all days (or appears to be a divider). 
+1. **MATRIX LAYOUT (CRITICAL)**:
+   - Many timetables use a GRID/TABLE structure where:
+     * ROWS = Days of the week (Monday, Tuesday, etc.) OR Row numbers (1, 2, 3, etc.) with times
+     * COLUMNS = Time slots (defined by headers at the top)
+   - The COLUMN HEADERS define the TIME for ALL events in that column.
+   - Example: If column 3 header says "9:15-10:45", then ANY event in column 3 happens at 9:15-10:45.
+
+2. **EVENT NAME EXTRACTION (CRITICAL)**:
+   - **NEVER use generic names like "Unknown Event", "Event", or "Activity"**
+   - **ALWAYS extract the ACTUAL text from the cell**
+   - Examples of CORRECT event names:
+     * "Students are allowed inside"
+     * "Late Bell Rings"
+     * "Morning Work"
+     * "Daily 5: Station 1"
+     * "Word Work (Phonics)"
+     * "Writer's Workshop"
+     * "Math"
+     * "Lunch"
+     * "Science/Health/Social Studies"
+     * "Jobs & Read Aloud"
+   - If a cell contains a time AND an event name (e.g., "8:35 Students are allowed inside"), extract ONLY the event name part ("Students are allowed inside")
+   - If a cell is truly empty or unreadable, skip it entirely - don't create a timeblock
+
+3. **LOCKED BLOCKS (Recurring Events)**:
+   - Look for "Gray Blocks" or vertical text that spans across all days (or appears to be a divider). 
    - Examples: "Registration and Early Morning Work", "Break", "Lunch", "Reading books and register", "Daily routine".
    - **ACTION**: If you see such a block (e.g., "Break" at 10:20-10:35), you MUST generate a separate timeblock for **EVERY** day (Monday-Friday) for that event at that time. Do not just list it once.
 
-3. **HEADER-BASED TIMING (CRITICAL)**:
+4. **HEADER-BASED TIMING (CRITICAL)**:
    - If the TOP ROW contains time ranges (e.g., "8:40", "9:00", "9:15-10:45", "11:00-11:30"), these define the TIME SLOTS for the COLUMNS below.
    - When you see an event in a cell (e.g., "Maths" in the Monday row under the "9:15-10:45" column), that event happens at that time.
    
@@ -250,10 +281,21 @@ Extract all timetable events.
    - **INFERRING END TIMES**: If a column header only shows a START time (e.g., "8:40", "9:00"), the END time is the START time of the NEXT column. For example:
      * Column 1: "8:40" → Column 2: "9:00" means events in Column 1 run from 08:40 to 09:00
      * Column 2: "9:00" → Column 3: "9:15" means events in Column 2 run from 09:00 to 09:15
-   - **LAST COLUMN (No Next Column)**: If it's the LAST time slot of the day (e.g., "2:30" or "14:30" with no column after it):
-     * Assume a reasonable duration (typically 30-45 minutes for primary schools)
-     * Example: "14:30" (2:30pm) → assume ends at 15:00 or 15:15 (3:00pm or 3:15pm)
-     * Look for context clues like "Storytime" (short, ~15 mins) vs "Word time" (longer, ~30-45 mins)
+   
+   - **⚠️ CRITICAL: LAST COLUMN END TIME (MUST NOT BE UNDEFINED)**:
+     * If it's the LAST time slot of the day (e.g., "2:30", "3:00", "14:30", "15:00" with no column after it), you MUST infer a reasonable end time.
+     * **NEVER return undefined or null for end_time - this is INVALID and will cause the timeblock to be rejected.**
+     * **Default assumption**: Add 30-45 minutes for most activities, 15 minutes for short activities like "Pack Up" or "Dismissal"
+     * Examples:
+       - "3:00 Jobs & Read Aloud" → ends at 15:30 (3:30pm) - 30 minute activity
+       - "3:10 Pack Up" → ends at 15:15 (3:15pm) - 5 minute activity  
+       - "3:15 School Dismissed" → ends at 15:20 (3:20pm) - 5 minute activity
+       - "2:30 Adventure to Fitness" → ends at 15:00 (3:00pm) - 30 minute activity
+     * Look for context clues:
+       - "Dismissal" or "Pack Up" = short (5-15 mins)
+       - "Jobs", "Read Aloud", "Fitness" = medium (30 mins)
+       - If the next row says "School Dismissed" at a specific time, use that as the end time
+   
    - If a column header already shows a range (e.g., "9:15-10:45"), use that directly.
    
    - **MULTIPLE SUBJECTS IN ONE CELL (TIME SPLITTING)**:
@@ -266,7 +308,18 @@ Extract all timetable events.
    
    - If a cell is EMPTY but the column has a header time, skip it (no event for that day/time).
 
-4. **Sparse Timetables**:
+4. **Multi-Column Daily Schedules**:
+   - Some timetables show SEPARATE COLUMNS for different days (e.g., "Daily Schedule—Monday, Tuesday, Thursday" | "Daily Schedule—Wednesday" | "Daily Schedule—Friday")
+   - **CRITICAL**: Each column is a SEPARATE daily schedule with its own time slots
+   - If a column header says "Monday, Tuesday, Thursday", create the SAME events for ALL THREE days
+   - Example:
+     * Column 1 header: "Daily Schedule—Monday, Tuesday, Thursday"
+     * Row 1: "8:35 Students are allowed inside"
+     * Result: Create 3 timeblocks (one for Monday, one for Tuesday, one for Thursday) with the same event
+   - Each column has its own row numbers (1, 2, 3, etc.) - these are NOT shared across columns
+   - Process each column independently and duplicate events for all days listed in that column's header
+
+5. **Sparse Timetables**:
    - Some timetables have many empty cells. Only extract events where there is actual text content.
    - If a row (day) has no events in certain time slots, that's normal - just skip those.
    
@@ -347,7 +400,8 @@ ${text}
 
         const validDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
-        const normalized = data.timeblocks.map(rawBlock => {
+        // First, expand any blocks with days arrays into individual blocks
+        const expandedBlocks = data.timeblocks.map(rawBlock => {
             // Normalize keys to lowercase
             const block = {};
             for (const key in rawBlock) {
@@ -366,6 +420,24 @@ ${text}
             // End time: endTime, end_time, endtime, time_end  
             if (block.endtime && !block.end_time) block.end_time = block.endtime;
             if (block.time_end && !block.end_time) block.end_time = block.time_end;
+
+            // Handle days array (multi-column schedules return days: ["Monday", "Tuesday", "Thursday"])
+            // Expand into multiple blocks, one per day
+            if (block.days && Array.isArray(block.days)) {
+                // Return array of blocks, one for each day
+                return block.days.map(day => ({
+                    ...block,
+                    day: day,
+                    days: undefined // Remove the days array
+                }));
+            }
+
+            // Single day - return as array for consistent handling
+            return [block];
+        }).flat(); // Flatten the array of arrays
+
+        // Now normalize and validate each expanded block
+        const normalized = expandedBlocks.map(block => {
 
             // Normalize Day
             if (block.day) block.day = block.day.trim();
@@ -403,26 +475,93 @@ ${text}
                 return null;
             }
 
-            // Validate times
+            // Check for missing time data BEFORE validation
             if (!block.start_time || !block.end_time) {
-                console.warn(`Missing time data for ${block.event_name} (start: ${block.start_time}, end: ${block.end_time}). Keys: ${Object.keys(rawBlock).join(',')}`);
-                return null;
+                // If end_time is missing but start_time exists, try to infer it
+                if (block.start_time && !block.end_time) {
+                    const eventName = (block.event_name || '').toLowerCase();
+                    const startTime = block.start_time;
+
+                    // Infer end time based on event type
+                    let durationMinutes = 30; // default
+
+                    if (eventName.includes('dismiss') || eventName.includes('pack up')) {
+                        durationMinutes = 5;
+                    } else if (eventName.includes('read') || eventName.includes('job') || eventName.includes('fitness')) {
+                        durationMinutes = 30;
+                    } else if (eventName.includes('lunch') || eventName.includes('recess')) {
+                        durationMinutes = 30;
+                    } else {
+                        durationMinutes = 30; // default for unknown activities
+                    }
+
+                    // Calculate end time
+                    const [hours, minutes] = startTime.split(':').map(Number);
+                    const startDate = new Date(2000, 0, 1, hours, minutes || 0);
+                    startDate.setMinutes(startDate.getMinutes() + durationMinutes);
+
+                    block.end_time = `${String(startDate.getHours()).padStart(2, '0')}:${String(startDate.getMinutes()).padStart(2, '0')}`;
+
+                    console.log(`Auto-inferred end_time for "${block.event_name}": ${block.start_time} → ${block.end_time} (${durationMinutes} mins)`);
+                } else {
+                    console.warn(`Missing time data for ${block.event_name} (start: ${block.start_time}, end: ${block.end_time}). Keys: ${Object.keys(block).join(',')}`);
+                    return null;
+                }
             }
 
+            // Validate times
             if (!this.isValidTime(block.start_time) || !this.isValidTime(block.end_time)) {
-                console.warn(`Invalid time format for ${block.event_name} (${block.start_time}-${block.end_time}). Keys: ${Object.keys(rawBlock).join(',')}`);
+                console.warn(`Invalid time format for ${block.event_name}. Start: ${block.start_time}, End: ${block.end_time}. Raw keys: ${Object.keys(block).join(',')}`);
                 return null;
             }
-
             return {
-                day: block.day,
+                day: block.day ? String(block.day).trim() : null,
                 event_name: block.event_name ? block.event_name.trim() : 'Unknown Event',
                 start_time: block.start_time,
                 end_time: block.end_time,
                 notes: block.notes || null,
                 confidence: block.confidence || 0.8
             };
-        }).filter(block => block !== null);
+        }).filter(block => {
+            if (!block || !block.day) {
+                console.warn('Filtered out block with missing day');
+                return false;
+            }
+
+            // Normalize day name
+            let dayStr = String(block.day).trim();
+
+            // Handle abbreviated day names (M, Tu, W, Th, F, Sa, Su)
+            const dayAbbreviations = {
+                'M': 'Monday', 'Mon': 'Monday',
+                'Tu': 'Tuesday', 'Tue': 'Tuesday',
+                'W': 'Wednesday', 'Wed': 'Wednesday',
+                'Th': 'Thursday', 'Thu': 'Thursday',
+                'F': 'Friday', 'Fri': 'Friday',
+                'Sa': 'Saturday', 'Sat': 'Saturday',
+                'Su': 'Sunday', 'Sun': 'Sunday'
+            };
+
+            if (dayAbbreviations[dayStr]) {
+                dayStr = dayAbbreviations[dayStr];
+            }
+
+            // Handle case where day might be "Wed" or "Wednesday."
+            // Simplified check: if string contains the day name
+            const dayMatch = validDays.find(d => dayStr.includes(d));
+            if (dayMatch) {
+                dayStr = dayMatch;
+            }
+
+            // Validate day
+            if (!validDays.includes(dayStr)) {
+                console.warn(`Invalid day: "${block.day}" (Normalized: "${dayStr}"). Filtering out block.`);
+                return false;
+            }
+
+            block.day = dayStr; // Update the block with the normalized day
+            return true;
+        });
 
         if (normalized.length === 0 && data.timeblocks.length > 0) {
             console.error(`All ${data.timeblocks.length} timeblocks were filtered out as invalid`);
