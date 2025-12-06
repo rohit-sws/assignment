@@ -262,6 +262,87 @@
 
         @keyframes spin { to { transform: rotate(360deg); } }
 
+        /* Toast Notifications */
+        .toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: white;
+            padding: 16px 24px;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            min-width: 300px;
+            z-index: 2000;
+            animation: slideIn 0.3s ease;
+            border-left: 4px solid var(--primary);
+        }
+
+        .toast.success {
+            border-left-color: var(--success);
+        }
+
+        .toast.error {
+            border-left-color: var(--error);
+        }
+
+        .toast-icon {
+            font-size: 24px;
+        }
+
+        .toast-content {
+            flex: 1;
+        }
+
+        .toast-title {
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .toast-message {
+            font-size: 0.9rem;
+            color: var(--text-light);
+        }
+
+        .toast-close {
+            background: none;
+            border: none;
+            font-size: 20px;
+            cursor: pointer;
+            color: var(--text-light);
+            padding: 0;
+            width: 24px;
+            height: 24px;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        @keyframes slideOut {
+            from {
+                transform: translateX(0);
+                opacity: 1;
+            }
+            to {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+        }
+
+        .toast.hiding {
+            animation: slideOut 0.3s ease forwards;
+        }
+
     </style>
 </head>
 <body>
@@ -328,6 +409,31 @@
         let selectedFile = null;
         let providers = [];
 
+        // --- Toast Notifications ---
+        function showToast(type, title, message) {
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            
+            const icon = type === 'success' ? '✅' : '❌';
+            
+            toast.innerHTML = `
+                <div class="toast-icon">${icon}</div>
+                <div class="toast-content">
+                    <div class="toast-title">${title}</div>
+                    <div class="toast-message">${message}</div>
+                </div>
+                <button class="toast-close" onclick="this.parentElement.remove()">×</button>
+            `;
+            
+            document.body.appendChild(toast);
+            
+            // Auto-remove after 5 seconds
+            setTimeout(() => {
+                toast.classList.add('hiding');
+                setTimeout(() => toast.remove(), 300);
+            }, 5000);
+        }
+
         // --- Logic ---
         
         async function init() {
@@ -337,7 +443,9 @@
                 providers = data.providers;
                 
                 const select = document.getElementById('providerSelect');
-                select.innerHTML = providers.map(p => 
+                // Filter out Anthropic Claude from the dropdown
+                const availableProviders = providers.filter(p => p.name !== 'anthropic');
+                select.innerHTML = availableProviders.map(p => 
                     `<option value="${p.name}" ${p.name === data.default_provider ? 'selected' : ''}>${p.displayName} (${p.available ? 'Ready' : 'Not Configured'})</option>`
                 ).join('');
             } catch (e) {
@@ -398,6 +506,11 @@
 
                 if (!json.success) throw new Error(json.error || 'Unknown error');
 
+                // Show success toast
+                const timeblockCount = json.data.timeblocks ? json.data.timeblocks.length : 0;
+                showToast('success', 'Timetable Extracted Successfully!', 
+                    `Extracted ${timeblockCount} events from ${selectedFile.name}`);
+
                 renderTimetable(json.data.timeblocks);
                 document.getElementById('resultsArea').classList.add('active');
                 
@@ -405,7 +518,10 @@
                 document.getElementById('resultsArea').scrollIntoView({ behavior: 'smooth' });
 
             } catch (err) {
-                alert('Error: ' + err.message);
+                // Show error toast
+                showToast('error', 'Extraction Failed', 
+                    err.message || 'Failed to extract timetable data. Please try again.');
+                console.error('Upload error:', err);
             } finally {
                 document.getElementById('loadingOverlay').classList.remove('active');
             }
