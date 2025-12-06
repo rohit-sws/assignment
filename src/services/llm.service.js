@@ -469,9 +469,15 @@ ${text}
             const dayMatch = validDays.find(d => block.day && block.day.includes(d));
             if (dayMatch) block.day = dayMatch;
 
+            // Validate day exists
+            if (!block.day) {
+                console.warn(`Missing day field. Keys: ${Object.keys(block).join(',')}`);
+                return null;
+            }
+
             // Validate day
             if (!validDays.includes(block.day)) {
-                console.warn(`Invalid day: "${block.day}" (Keys: ${Object.keys(rawBlock).join(',')})`);
+                console.warn(`Invalid day: "${block.day}" (Keys: ${Object.keys(block).join(',')})`);
                 return null;
             }
 
