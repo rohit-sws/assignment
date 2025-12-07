@@ -1,14 +1,83 @@
 # API Documentation - Learning Yogi Timetable System
 
+## Table of Contents
+
+1. [Quick Reference](#quick-reference)
+2. [Base URL](#base-url)
+3. [Authentication](#authentication)
+4. [Response Format](#response-format)
+5. [Endpoints](#endpoints)
+6. [Data Models](#data-models)
+7. [Error Handling](#error-handling)
+8. [Rate Limiting](#rate-limiting)
+9. [File Upload Constraints](#file-upload-constraints)
+10. [LLM Provider Configuration](#llm-provider-configuration)
+11. [Advanced Features](#advanced-features)
+12. [Usage Examples](#usage-examples)
+13. [Best Practices](#best-practices)
+14. [Troubleshooting](#troubleshooting)
+15. [Performance Considerations](#performance-considerations)
+
+---
+
+## Quick Reference
+
+| Method | Endpoint                | Description                  | Auth Required |
+| ------ | ----------------------- | ---------------------------- | ------------- |
+| GET    | `/timetables/providers` | Get available LLM providers  | No            |
+| POST   | `/timetables/upload`    | Upload and process timetable | No            |
+| GET    | `/timetables`           | Get all timetables           | No            |
+| GET    | `/timetables/:id`       | Get specific timetable       | No            |
+| DELETE | `/timetables/:id`       | Delete timetable             | No            |
+| GET    | `/timetables/:id/logs`  | Get processing logs          | No            |
+| GET    | `/config`               | Get server configuration     | No            |
+| GET    | `/health`               | Health check endpoint        | No            |
+
+---
+
 ## Base URL
 
 ```
 http://localhost:3000/api
 ```
 
+**Production:** Replace with your production domain (e.g., `https://api.learningyogi.com/api`)
+
+---
+
 ## Authentication
 
-Currently, no authentication is required. In production, implement JWT or API key authentication.
+### Current Status
+
+Currently, **no authentication is required** for API access. This is suitable for development and demo purposes.
+
+### Production Recommendations
+
+For production deployment, implement one of the following:
+
+#### 1. API Key Authentication
+
+```bash
+curl -H "X-API-Key: your-api-key" \
+  http://localhost:3000/api/timetables
+```
+
+#### 2. JWT (JSON Web Tokens)
+
+```bash
+curl -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  http://localhost:3000/api/timetables
+```
+
+#### 3. OAuth 2.0
+
+For third-party integrations and multi-tenant scenarios.
+
+### LLM API Key Handling
+
+- **Server-side Keys**: LLM provider API keys are stored server-side in `.env` file
+- **Custom Keys**: Users can optionally provide their own API keys via the `api_key` parameter in upload requests
+- **Security**: API keys are never exposed in responses or client-side code
 
 ## Response Format
 
@@ -739,3 +808,733 @@ For issues or questions:
 - Check processing logs: `GET /timetables/:id/logs`
 - Review server console for detailed error messages
 - Ensure LLM API keys are correctly configured in `.env`
+
+---
+
+## Best Practices
+
+### 1. File Upload Optimization
+
+#### Compress Images Before Upload
+
+```javascript
+// Compress image client-side before uploading
+async function compressImage(file, maxSizeMB = 5) {
+  const options = {
+    maxSizeMB: maxSizeMB,
+    maxWidthOrHeight: 1920,
+    useWebWorker: true,
+  };
+
+  // Use a library like browser-image-compression
+  const compressedFile = await imageCompression(file, options);
+  return compressedFile;
+}
+```
+
+#### Validate File Size Client-Side
+
+```javascript
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+
+if (file.size > MAX_FILE_SIZE) {
+  alert("File size exceeds 10MB limit");
+  return;
+}
+```
+
+### 2. Error Handling
+
+#### Always Check Response Status
+
+```javascript
+const response = await fetch("/api/timetables/upload", {
+  method: "POST",
+  body: formData,
+});
+
+if (!response.ok) {
+  const error = await response.json();
+  console.error("Upload failed:", error.error);
+  // Show user-friendly error message
+  showToast("error", "Upload Failed", error.error);
+  return;
+}
+
+const data = await response.json();
+```
+
+#### Implement Retry Logic for Transient Failures
+
+```javascript
+async function uploadWithRetry(formData, maxRetries = 3) {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      const response = await fetch("/api/timetables/upload", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (response.ok) {
+        return await response.json();
+      }
+
+      // Don't retry on client errors (4xx)
+      if (response.status >= 400 && response.status < 500) {
+        throw new Error(await response.text());
+      }
+    } catch (error) {
+      if (i === maxRetries - 1) throw error;
+      // Exponential backoff
+      await new Promise((resolve) =>
+        setTimeout(resolve, Math.pow(2, i) * 1000)
+      );
+    }
+  }
+}
+```
+
+### 3. Provider Selection
+
+#### Check Provider Availability Before Upload
+
+```javascript
+// Get available providers first
+const providersRes = await fetch("/api/timetables/providers");
+const { providers } = await providersRes.json();
+
+// Filter to only available providers
+const availableProviders = providers.filter((p) => p.available);
+
+if (availableProviders.length === 0) {
+  alert("No LLM providers are currently available. Please configure API keys.");
+  return;
+}
+
+// Use the first available provider
+const selectedProvider = availableProviders[0].name;
+```
+
+### 4. Progress Indication
+
+#### Show Upload Progress
+
+```javascript
+const xhr = new XMLHttpRequest();
+
+xhr.upload.addEventListener("progress", (e) => {
+  if (e.lengthComputable) {
+    const percentComplete = (e.loaded / e.total) * 100;
+    updateProgressBar(percentComplete);
+  }
+});
+
+xhr.addEventListener("load", () => {
+  const response = JSON.parse(xhr.responseText);
+  handleSuccess(response);
+});
+
+xhr.open("POST", "/api/timetables/upload");
+xhr.send(formData);
+```
+
+### 5. Data Validation
+
+#### Validate Extracted Timeblocks
+
+```javascript
+function validateTimeblocks(timeblocks) {
+  const issues = [];
+
+  timeblocks.forEach((block, index) => {
+    // Check for valid time format
+    if (!/^\d{2}:\d{2}$/.test(block.start_time)) {
+      issues.push(`Invalid start_time at index ${index}`);
+    }
+
+    // Check for logical time order
+    if (block.start_time >= block.end_time) {
+      issues.push(`End time before start time at index ${index}`);
+    }
+
+    // Check for valid day
+    const validDays = [
+      "Monday",
+      "Tuesday",
+      "Wednesday",
+      "Thursday",
+      "Friday",
+      "Saturday",
+      "Sunday",
+    ];
+    if (!validDays.includes(block.day)) {
+      issues.push(`Invalid day "${block.day}" at index ${index}`);
+    }
+  });
+
+  return issues;
+}
+```
+
+### 6. Caching Strategy
+
+#### Cache Timetable List
+
+```javascript
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+let timetableCache = {
+  data: null,
+  timestamp: null,
+};
+
+async function getTimetables(forceRefresh = false) {
+  const now = Date.now();
+
+  if (
+    !forceRefresh &&
+    timetableCache.data &&
+    now - timetableCache.timestamp < CACHE_DURATION
+  ) {
+    return timetableCache.data;
+  }
+
+  const response = await fetch("/api/timetables");
+  const data = await response.json();
+
+  timetableCache = {
+    data: data.data,
+    timestamp: now,
+  };
+
+  return data.data;
+}
+```
+
+---
+
+## Troubleshooting
+
+### Common Issues and Solutions
+
+#### 1. "No file uploaded" Error
+
+**Problem:** Server returns 400 error with "No file uploaded" message.
+
+**Solutions:**
+
+- Ensure the form field name is `timetable` (not `file` or other names)
+- Verify `Content-Type` is `multipart/form-data`
+- Check that the file input has a selected file
+
+```javascript
+// Correct
+formData.append("timetable", fileInput.files[0]);
+
+// Incorrect
+formData.append("file", fileInput.files[0]); // Wrong field name
+```
+
+#### 2. "Invalid file type" Error
+
+**Problem:** File upload rejected due to invalid MIME type.
+
+**Solutions:**
+
+- Only upload PDF, DOCX, PNG, JPG, or JPEG files
+- Check the actual file MIME type, not just the extension
+- Some files may have incorrect MIME types
+
+```javascript
+// Check MIME type before upload
+const allowedTypes = [
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "image/png",
+  "image/jpeg",
+];
+
+if (!allowedTypes.includes(file.type)) {
+  alert("Invalid file type. Please upload PDF, DOCX, PNG, or JPG files.");
+  return;
+}
+```
+
+#### 3. "No timeblocks extracted" Error
+
+**Problem:** LLM successfully processes the file but extracts no valid timeblocks.
+
+**Possible Causes:**
+
+- Timetable image is too blurry or low quality
+- Timetable format is too complex or unusual
+- Text in the document is not readable (handwritten, stylized fonts)
+- LLM provider is having issues
+
+**Solutions:**
+
+1. **Improve Image Quality**: Use higher resolution images (minimum 1000px width)
+2. **Try Different Provider**: Switch from OpenAI to Gemini or vice versa
+3. **Simplify Format**: Use standard table layouts with clear headers
+4. **Check Processing Logs**: Review `/api/timetables/:id/logs` for details
+
+```javascript
+// Try with different provider if first attempt fails
+const providers = ["gemini", "openai", "anthropic"];
+
+for (const provider of providers) {
+  try {
+    formData.set("llm_provider", provider);
+    const response = await fetch("/api/timetables/upload", {
+      method: "POST",
+      body: formData,
+    });
+
+    const data = await response.json();
+    if (data.success && data.data.timeblocks.length > 0) {
+      console.log(`Success with ${provider}`);
+      return data;
+    }
+  } catch (error) {
+    console.log(`Failed with ${provider}:`, error);
+  }
+}
+```
+
+#### 4. Slow Processing Times
+
+**Problem:** Upload takes longer than 30 seconds.
+
+**Causes:**
+
+- Large file size (close to 10MB limit)
+- Complex timetable with many events
+- LLM API rate limiting or slow response
+- Network latency
+
+**Solutions:**
+
+1. **Compress Images**: Reduce file size before upload
+2. **Use Gemini**: Generally faster for image processing
+3. **Implement Timeout**: Set reasonable timeout limits
+
+```javascript
+const controller = new AbortController();
+const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s timeout
+
+try {
+  const response = await fetch("/api/timetables/upload", {
+    method: "POST",
+    body: formData,
+    signal: controller.signal,
+  });
+  clearTimeout(timeoutId);
+  // Handle response
+} catch (error) {
+  if (error.name === "AbortError") {
+    console.error("Request timed out after 60 seconds");
+  }
+}
+```
+
+#### 5. CORS Errors
+
+**Problem:** Browser blocks requests with CORS policy errors.
+
+**Solutions:**
+
+- Ensure your frontend domain is in `ALLOWED_ORIGINS` env variable
+- For development, add `http://localhost:3000` and `http://localhost:5173`
+- In production, add your production domain
+
+```env
+# .env
+ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173,https://yourdomain.com
+```
+
+#### 6. Database Connection Errors
+
+**Problem:** Server returns 500 error with database connection issues.
+
+**Solutions:**
+
+1. Verify MySQL is running: `mysql.server status`
+2. Check database credentials in `.env`
+3. Ensure database exists: `npm run db:init`
+4. Check connection pool settings
+
+```bash
+# Test database connection
+mysql -u root -p -e "USE learning_yogi; SHOW TABLES;"
+```
+
+#### 7. LLM API Key Errors
+
+**Problem:** "API key not configured" or authentication errors from LLM providers.
+
+**Solutions:**
+
+1. Verify API keys are set in `.env` file
+2. Check API key format (OpenAI starts with `sk-`, Gemini is alphanumeric)
+3. Ensure API key has sufficient quota/credits
+4. Test API key directly with provider's API
+
+```bash
+# Test OpenAI API key
+curl https://api.openai.com/v1/models \
+  -H "Authorization: Bearer $OPENAI_API_KEY"
+
+# Test Gemini API key
+curl "https://generativelanguage.googleapis.com/v1/models?key=$GEMINI_API_KEY"
+```
+
+### Debug Mode
+
+#### Enable Verbose Logging
+
+For debugging, check server console logs:
+
+```bash
+# Development mode with detailed logs
+NODE_ENV=development npm run dev
+```
+
+#### Check Processing Logs
+
+```javascript
+// After upload, check processing logs
+const logsRes = await fetch(`/api/timetables/${timetableId}/logs`);
+const logs = await logsRes.json();
+
+logs.data.forEach((log) => {
+  console.log(`[${log.log_level}] ${log.message}`, log.details);
+});
+```
+
+---
+
+## Performance Considerations
+
+### Response Times
+
+| Operation                           | Expected Time | Notes                         |
+| ----------------------------------- | ------------- | ----------------------------- |
+| **GET /timetables**                 | < 100ms       | Cached with indexes           |
+| **GET /timetables/:id**             | < 150ms       | Includes JOIN with timeblocks |
+| **POST /timetables/upload** (Image) | 10-30s        | LLM Vision API processing     |
+| **POST /timetables/upload** (PDF)   | 15-35s        | Text extraction + LLM         |
+| **POST /timetables/upload** (DOCX)  | 12-28s        | Text extraction + LLM         |
+| **DELETE /timetables/:id**          | < 100ms       | Cascading delete              |
+
+### Optimization Tips
+
+#### 1. Batch Operations
+
+If uploading multiple timetables, process them sequentially to avoid overwhelming the LLM API:
+
+```javascript
+async function uploadMultiple(files) {
+  const results = [];
+
+  for (const file of files) {
+    const formData = new FormData();
+    formData.append("timetable", file);
+
+    const result = await uploadTimetable(formData);
+    results.push(result);
+
+    // Small delay between uploads to respect rate limits
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+
+  return results;
+}
+```
+
+#### 2. Lazy Load Timeblocks
+
+When displaying a list of timetables, don't fetch full details until needed:
+
+```javascript
+// Step 1: Get list (lightweight)
+const timetables = await fetch("/api/timetables").then((r) => r.json());
+
+// Step 2: Only fetch details when user clicks
+async function viewTimetable(id) {
+  const details = await fetch(`/api/timetables/${id}`).then((r) => r.json());
+  displayTimetable(details.data);
+}
+```
+
+#### 3. Use Appropriate LLM Provider
+
+| Provider      | Best For        | Speed       | Accuracy         |
+| ------------- | --------------- | ----------- | ---------------- |
+| **Gemini**    | Images, PDFs    | ⚡⚡⚡ Fast | ⭐⭐⭐ Excellent |
+| **OpenAI**    | Text, DOCX      | ⚡⚡ Medium | ⭐⭐⭐ Excellent |
+| **Anthropic** | Complex layouts | ⚡⚡ Medium | ⭐⭐⭐ Excellent |
+
+**Recommendation:** Use Gemini for best balance of speed and accuracy.
+
+#### 4. Database Query Optimization
+
+The system uses several optimizations:
+
+- **Indexes** on frequently queried columns (`teacher_id`, `processing_status`, `day_of_week`)
+- **Computed columns** for `duration_minutes` (calculated at DB level)
+- **Connection pooling** for concurrent requests
+- **Selective loading** (timeblocks only loaded when needed)
+
+#### 5. File Storage Optimization
+
+```javascript
+// For production, consider:
+// 1. Storing files in cloud storage (S3, GCS)
+// 2. Generating thumbnails for images
+// 3. Implementing file cleanup for old uploads
+
+// Example: Delete timetables older than 30 days
+const thirtyDaysAgo = new Date();
+thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+const oldTimetables = await fetch(
+  `/api/timetables?before=${thirtyDaysAgo.toISOString()}`
+).then((r) => r.json());
+
+for (const timetable of oldTimetables.data) {
+  await fetch(`/api/timetables/${timetable.id}`, { method: "DELETE" });
+}
+```
+
+### Monitoring Performance
+
+```javascript
+// Track API response times
+const startTime = performance.now();
+
+const response = await fetch("/api/timetables/upload", {
+  method: "POST",
+  body: formData,
+});
+
+const endTime = performance.now();
+const duration = endTime - startTime;
+
+console.log(`Upload completed in ${(duration / 1000).toFixed(2)}s`);
+
+// Log slow requests
+if (duration > 30000) {
+  console.warn("Slow upload detected:", {
+    duration,
+    fileSize: formData.get("timetable").size,
+    provider: formData.get("llm_provider"),
+  });
+}
+```
+
+---
+
+## SDK / Client Library Examples
+
+### JavaScript/TypeScript Client
+
+```typescript
+class TimetableClient {
+  constructor(private baseUrl: string = "http://localhost:3000/api") {}
+
+  async getProviders() {
+    const response = await fetch(`${this.baseUrl}/timetables/providers`);
+    return response.json();
+  }
+
+  async uploadTimetable(
+    file: File,
+    options: {
+      provider?: string;
+      apiKey?: string;
+      teacherId?: number;
+    } = {}
+  ) {
+    const formData = new FormData();
+    formData.append("timetable", file);
+
+    if (options.provider) formData.append("llm_provider", options.provider);
+    if (options.apiKey) formData.append("api_key", options.apiKey);
+    if (options.teacherId)
+      formData.append("teacher_id", options.teacherId.toString());
+
+    const response = await fetch(`${this.baseUrl}/timetables/upload`, {
+      method: "POST",
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || "Upload failed");
+    }
+
+    return response.json();
+  }
+
+  async getTimetables(teacherId?: number) {
+    const url = new URL(`${this.baseUrl}/timetables`);
+    if (teacherId) url.searchParams.set("teacher_id", teacherId.toString());
+
+    const response = await fetch(url.toString());
+    return response.json();
+  }
+
+  async getTimetable(id: number) {
+    const response = await fetch(`${this.baseUrl}/timetables/${id}`);
+
+    if (!response.ok) {
+      throw new Error("Timetable not found");
+    }
+
+    return response.json();
+  }
+
+  async deleteTimetable(id: number) {
+    const response = await fetch(`${this.baseUrl}/timetables/${id}`, {
+      method: "DELETE",
+    });
+
+    return response.json();
+  }
+
+  async getLogs(id: number) {
+    const response = await fetch(`${this.baseUrl}/timetables/${id}/logs`);
+    return response.json();
+  }
+}
+
+// Usage
+const client = new TimetableClient();
+
+const providers = await client.getProviders();
+const result = await client.uploadTimetable(file, { provider: "gemini" });
+const timetables = await client.getTimetables();
+```
+
+### Python Client
+
+```python
+import requests
+from typing import Optional, Dict, Any
+
+class TimetableClient:
+    def __init__(self, base_url: str = "http://localhost:3000/api"):
+        self.base_url = base_url
+
+    def get_providers(self) -> Dict[str, Any]:
+        response = requests.get(f"{self.base_url}/timetables/providers")
+        response.raise_for_status()
+        return response.json()
+
+    def upload_timetable(
+        self,
+        file_path: str,
+        provider: Optional[str] = None,
+        api_key: Optional[str] = None,
+        teacher_id: Optional[int] = None
+    ) -> Dict[str, Any]:
+        with open(file_path, 'rb') as f:
+            files = {'timetable': f}
+            data = {}
+
+            if provider:
+                data['llm_provider'] = provider
+            if api_key:
+                data['api_key'] = api_key
+            if teacher_id:
+                data['teacher_id'] = teacher_id
+
+            response = requests.post(
+                f"{self.base_url}/timetables/upload",
+                files=files,
+                data=data
+            )
+            response.raise_for_status()
+            return response.json()
+
+    def get_timetables(self, teacher_id: Optional[int] = None) -> Dict[str, Any]:
+        params = {'teacher_id': teacher_id} if teacher_id else {}
+        response = requests.get(f"{self.base_url}/timetables", params=params)
+        response.raise_for_status()
+        return response.json()
+
+    def get_timetable(self, timetable_id: int) -> Dict[str, Any]:
+        response = requests.get(f"{self.base_url}/timetables/{timetable_id}")
+        response.raise_for_status()
+        return response.json()
+
+    def delete_timetable(self, timetable_id: int) -> Dict[str, Any]:
+        response = requests.delete(f"{self.base_url}/timetables/{timetable_id}")
+        response.raise_for_status()
+        return response.json()
+
+    def get_logs(self, timetable_id: int) -> Dict[str, Any]:
+        response = requests.get(f"{self.base_url}/timetables/{timetable_id}/logs")
+        response.raise_for_status()
+        return response.json()
+
+# Usage
+client = TimetableClient()
+
+providers = client.get_providers()
+result = client.upload_timetable('timetable.png', provider='gemini')
+timetables = client.get_timetables()
+```
+
+---
+
+## Additional Endpoints
+
+### Health Check
+
+**Endpoint:** `GET /health`
+
+**Description:** Check if the server is running and responsive.
+
+**Response:**
+
+```json
+{
+  "status": "ok",
+  "timestamp": "2025-12-07T03:32:23.456Z"
+}
+```
+
+**Usage:**
+
+```javascript
+// Ping server before making requests
+const health = await fetch("http://localhost:3000/health").then((r) =>
+  r.json()
+);
+if (health.status === "ok") {
+  // Server is ready
+}
+```
+
+### Server Configuration
+
+**Endpoint:** `GET /api/config`
+
+**Description:** Get public server configuration.
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "serverUrl": "http://localhost:3000"
+}
+```
+
+**Usage:**
+
+```javascript
+// Get server URL dynamically
+const config = await fetch("/api/config").then((r) => r.json());
+const serverUrl = config.serverUrl;
+```
