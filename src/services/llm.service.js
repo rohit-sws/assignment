@@ -16,6 +16,48 @@ class LLMService {
     }
 
     /**
+     * Retry logic with exponential backoff for handling transient API errors
+     * @param {Function} fn - Async function to retry
+     * @param {number} maxRetries - Maximum number of retry attempts (default: 3)
+     * @param {number} initialDelay - Initial delay in milliseconds (default: 1000ms)
+     * @param {Array<number>} retryableStatusCodes - HTTP status codes that should trigger a retry (default: [503, 429])
+     */
+    async retryWithBackoff(fn, maxRetries = 3, initialDelay = 1000, retryableStatusCodes = [503, 429]) {
+        let lastError;
+
+        for (let attempt = 0; attempt < maxRetries; attempt++) {
+            try {
+                return await fn();
+            } catch (error) {
+                lastError = error;
+
+                // Check if error is retryable
+                const isRetryable = retryableStatusCodes.includes(error.status) ||
+                    retryableStatusCodes.includes(error.statusCode) ||
+                    (error.message && error.message.includes('overloaded')) ||
+                    (error.message && error.message.includes('Service Unavailable'));
+
+                // If this is the last attempt or error is not retryable, throw immediately
+                if (attempt === maxRetries - 1 || !isRetryable) {
+                    throw error;
+                }
+
+                // Calculate delay with exponential backoff
+                const delay = initialDelay * Math.pow(2, attempt);
+
+                console.warn(`⚠️  API Error (attempt ${attempt + 1}/${maxRetries}): ${error.message || error}`);
+                console.log(`🔄 Retrying in ${delay}ms...`);
+
+                // Wait before retrying
+                await new Promise(resolve => setTimeout(resolve, delay));
+            }
+        }
+
+        // This should never be reached, but just in case
+        throw lastError;
+    }
+
+    /**
      * Extract timetable data using specified LLM provider
      * @param {string|Buffer} input - Raw text or Image Buffer/Path
      * @param {string} provider - 'openai', 'gemini', or 'anthropic'
@@ -104,13 +146,16 @@ class LLMService {
             }
         };
 
-        const result = await model.generateContent([prompt, imagePart]);
-        const response = await result.response;
-        let responseText = response.text();
+        // Wrap the API call with retry logic
+        return await this.retryWithBackoff(async () => {
+            const result = await model.generateContent([prompt, imagePart]);
+            const response = await result.response;
+            let responseText = response.text();
 
-        // No need to strip markdown if using responseMimeType usually, but safe to keep regex check just in case
-        responseText = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-        return JSON.parse(responseText);
+            // No need to strip markdown if using responseMimeType usually, but safe to keep regex check just in case
+            responseText = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+            return JSON.parse(responseText);
+        }, 3, 1000); // 3 retries, starting with 1 second delay
     }
 
     /**
@@ -119,31 +164,34 @@ class LLMService {
     async extractWithOpenAIVision(base64Image, customApiKey = null) {
         const client = customApiKey ? new OpenAI({ apiKey: customApiKey }) : this.openai;
 
-        const response = await client.chat.completions.create({
-            model: "gpt-4-turbo", // Vision capable
-            messages: [
-                {
-                    role: "system",
-                    content: "You are an expert at extracting structured data from timetable images. Return ONLY valid JSON."
-                },
-                {
-                    role: "user",
-                    content: [
-                        { type: "text", text: this.buildExtractionPrompt("Extraction from Image") },
-                        {
-                            type: "image_url",
-                            image_url: {
-                                "url": `data:image/jpeg;base64,${base64Image}`
+        // Wrap the API call with retry logic
+        return await this.retryWithBackoff(async () => {
+            const response = await client.chat.completions.create({
+                model: "gpt-4-turbo", // Vision capable
+                messages: [
+                    {
+                        role: "system",
+                        content: "You are an expert at extracting structured data from timetable images. Return ONLY valid JSON."
+                    },
+                    {
+                        role: "user",
+                        content: [
+                            { type: "text", text: this.buildExtractionPrompt("Extraction from Image") },
+                            {
+                                type: "image_url",
+                                image_url: {
+                                    "url": `data:image/jpeg;base64,${base64Image}`
+                                }
                             }
-                        }
-                    ]
-                }
-            ],
-            max_tokens: 4096,
-            response_format: { type: "json_object" }
-        });
+                        ]
+                    }
+                ],
+                max_tokens: 4096,
+                response_format: { type: "json_object" }
+            });
 
-        return JSON.parse(response.choices[0].message.content);
+            return JSON.parse(response.choices[0].message.content);
+        }, 3, 1000); // 3 retries, starting with 1 second delay
     }
 
     /**
@@ -155,25 +203,28 @@ class LLMService {
 
         const prompt = this.buildExtractionPrompt(text);
 
-        const response = await client.chat.completions.create({
-            model: model,
-            messages: [
-                {
-                    role: "system",
-                    content: `You are an expert at extracting structured timetable data from various formats. 
+        // Wrap the API call with retry logic
+        return await this.retryWithBackoff(async () => {
+            const response = await client.chat.completions.create({
+                model: model,
+                messages: [
+                    {
+                        role: "system",
+                        content: `You are an expert at extracting structured timetable data from various formats. 
                     Your task is to identify timeblocks with their days, times, and event names from unstructured text.
                     Always return valid JSON.`
-                },
-                {
-                    role: "user",
-                    content: prompt
-                }
-            ],
-            response_format: { type: "json_object" },
-            temperature: 0.1
-        });
+                    },
+                    {
+                        role: "user",
+                        content: prompt
+                    }
+                ],
+                response_format: { type: "json_object" },
+                temperature: 0.1
+            });
 
-        return JSON.parse(response.choices[0].message.content);
+            return JSON.parse(response.choices[0].message.content);
+        }, 3, 1000); // 3 retries, starting with 1 second delay
     }
 
     /**
@@ -191,14 +242,17 @@ class LLMService {
 
         const prompt = `${this.getSystemPrompt()}\n\n${this.buildExtractionPrompt(text)}\n\nIMPORTANT: Return ONLY valid JSON, no markdown formatting or additional text. Root object MUST have "timeblocks".`;
 
-        const result = await model.generateContent(prompt);
-        const response = await result.response;
-        let responseText = response.text();
+        // Wrap the API call with retry logic
+        return await this.retryWithBackoff(async () => {
+            const result = await model.generateContent(prompt);
+            const response = await result.response;
+            let responseText = response.text();
 
-        // Clean up Gemini's response (sometimes includes markdown)
-        responseText = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+            // Clean up Gemini's response (sometimes includes markdown)
+            responseText = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
 
-        return JSON.parse(responseText);
+            return JSON.parse(responseText);
+        }, 3, 1000); // 3 retries, starting with 1 second delay
     }
 
     /**
